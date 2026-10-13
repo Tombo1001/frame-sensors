@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Configure, restart or query the Frame Sensors app on the photo frame over ADB.
+#   frame-sensors-config set --host 192.168.1.10 --port 1883 --user mqtt --pass secret \
+#                            [--interval 30] [--name "Photo Frame"] [--id photo_frame] [--prefix homeassistant]
+#   frame-sensors-config status
+#   frame-sensors-config restart
+#   frame-sensors-config start      # first start after a fresh install (goes via the activity, see README)
+#   frame-sensors-config logs
+# Only the options given are changed; the rest keep their current values.
+set -euo pipefail
+ADB="${ADB:-adb}"
+FRAME="${FRAME:-192.168.1.50:5555}"   # your frame's IP:port, or set FRAME=
+PKG=net.exitcode0.framesensors
+"$ADB" connect "$FRAME" >/dev/null
+a() { "$ADB" -s "$FRAME" "$@"; }
+mask() { sed 's/pass=[^ ]*/pass=********/g'; }
+
+cmd=${1:-status}; shift || true
+case "$cmd" in
+  set)
+    extras=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --host) extras+=(--es host "$2"); shift 2 ;;
+        --port) extras+=(--ei port "$2"); shift 2 ;;
+        --user) extras+=(--es user "$2"); shift 2 ;;
+        --pass) extras+=(--es pass "$2"); shift 2 ;;
+        --interval) extras+=(--ei interval "$2"); shift 2 ;;
+        --name) extras+=(--es name "$2"); shift 2 ;;
+        --id) extras+=(--es id "$2"); shift 2 ;;
+        --prefix) extras+=(--es discovery_prefix "$2"); shift 2 ;;
+        --clear) extras+=(--ez clear true); shift ;;
+        *) echo "unknown option $1" >&2; exit 2 ;;
+      esac
+    done
+    a shell am broadcast --include-stopped-packages -a $PKG.CONFIGURE "${extras[@]}" | grep -o 'data=.*' | mask ;;
+  status)  a shell am broadcast -a $PKG.STATUS | grep -o 'data=.*' | mask ;;
+  restart) a shell am broadcast -a $PKG.RESTART | grep -o 'data=.*' ;;
+  start)   a shell am start -n $PKG/.MainActivity >/dev/null && echo started ;;
+  logs)    a shell logcat -d -s FrameSensors | tail -n "${1:-30}" | mask ;;
+  *) sed -n '2,9p' "$0"; exit 2 ;;
+esac
