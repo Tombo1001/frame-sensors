@@ -112,12 +112,10 @@ public class SensorService extends Service implements SensorEventListener {
         try { unregisterReceiver(screenReceiver); } catch (Exception ignored) {}
         if (exec != null) exec.shutdownNow();
         try {
-            if (mqtt != null && mqtt.isConnected()) {
+            if (mqtt != null && mqtt.isConnected())
                 mqtt.publish(cfg.baseTopic() + "/availability", "offline".getBytes(), 1, true);
-                mqtt.disconnect();
-            }
-            if (mqtt != null) mqtt.close();
         } catch (Exception e) { Log.w(TAG, "disconnect: " + e); }
+        closeClient();
         super.onDestroy();
     }
 
@@ -154,7 +152,18 @@ public class SensorService extends Service implements SensorEventListener {
 
     // ------------------------------------------------------------------ mqtt
 
+    /** Every start command reconnects. The old client must go first: two clients with one id
+     *  and auto-reconnect make the broker kick them in turn, forever. */
+    private void closeClient() {
+        MqttClient old = mqtt;
+        mqtt = null;
+        if (old == null) return;
+        try { old.disconnectForcibly(0, 1000); } catch (Exception ignored) {}
+        try { old.close(true); } catch (Exception ignored) {}
+    }
+
     private void connect() {
+        closeClient();
         try {
             String url = "tcp://" + cfg.host + ":" + cfg.port;
             mqtt = new MqttClient(url, "frame-sensors-" + cfg.id, new MemoryPersistence());
